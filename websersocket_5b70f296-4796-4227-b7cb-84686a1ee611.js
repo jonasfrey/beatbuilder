@@ -16,6 +16,41 @@ let s_path_abs_folder_current = s_path_abs_file_current.split('/').slice(0, -1).
 const b_deno_deploy = Deno.env.get("DENO_DEPLOYMENT_ID") !== undefined;
 
 let a_o_ws_client = []
+// autogenerate 
+
+let a_o = []
+for await (let o of Deno.readDir('./localhost/Samples')){
+    console.log(o)
+    if(
+        o.name.includes(".wav")
+        || o.name.includes(".mp3")
+        || o.name.includes(".flacc")
+        || o.name.includes(".ogg")
+    ){
+        a_o.push(o)
+    }
+};
+await Deno.writeTextFile(
+    './localhost/a_o_sample.module.js', 
+    `
+    import {O_sample} from './classes.module.js'
+    let a_o_sample = []
+    ${a_o.map(o=>{
+        let s = o.name.replaceAll('-', '_').split('.').shift();
+        let s_name_var = `o_sample__${s}` 
+        return `let ${s_name_var} = new O_sample(
+            '${o.name}',// s_name, 
+            '${o.name.split('.').shift()}',// s_url_icon, 
+            'Samples/${o.name}'// s_url_audio,
+        );
+        a_o_sample.push(${s_name_var})
+        export {${s_name_var}}
+        `
+        
+    }).join('\n')}
+    export {a_o_sample}`
+)
+// Deno.exit()
 
 let o_config = await f_o_config();
 console.log({o_config});

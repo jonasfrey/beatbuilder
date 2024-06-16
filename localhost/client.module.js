@@ -12,6 +12,13 @@ import {
 from 'https://deno.land/x/f_o_html_from_o_js@2.9/mod.js'
 
 import {
+    a_o_sample, 
+    o_sample__kick_acoustic01, 
+    o_sample__hihat_acoustic01, 
+    o_sample__snare_acoustic01
+} from "./a_o_sample.module.js"
+
+import {
     f_n_idx_binding_from_params,
     f_o_gpu_gateway, 
     f_o_gpu_gateway__from_simple_fragment_shader,
@@ -27,18 +34,50 @@ import {
 }
 from 'https://deno.land/x/gpugateway@0.5/mod.js'
 
+import {
+    f_a_n_trn__relative_to_o_html__nor
+}
+from "https://deno.land/x/handyhelpers@4.0.3/mod.js"
+
 import { 
     O_beat,
     O_note,
     O_pattern,
-    O_sample
+    O_sample,
+    O_track
  } from "./classes.module.js";
 
  
 o_variables.n_rem_font_size_base = 1. // adjust font size, other variables can also be adapted before adding the css to the dom
 o_variables.n_rem_padding_interactive_elements = 0.5; // adjust padding for interactive elements 
 f_add_css(
+        // .o_track_o_sample {
+    //     -webkit-user-drag: none; /* Chrome, Safari, Opera */
+    //     -moz-user-drag: none;    /* Firefox */
+    //     -ms-user-drag: none;     /* Internet Explorer and Edge */
+    //     user-drag: none;         /* Standard syntax */
+    //     pointer-events: none;    /* Prevent image from being interacted with */
+    // }
     `
+    .o_track_o_sample , 
+    .o_track_o_sample img{
+        min-width: 100%;
+        user-drag: none;
+        -webkit-user-drag: none;
+        user-select: none;
+        -moz-user-select: none;
+        -webkit-user-select: none;
+        -ms-user-select: none;
+    }
+    .a_o_track {
+        display: flex;
+        flex-direction: column;
+        align-items: space;
+        min-height: 100vh;
+    }
+    .a_o_track > div {
+        flex:1;
+    }
     canvas{
         width: 100%;
         height: 100%;
@@ -54,6 +93,8 @@ f_add_css(
 
 );
 
+
+
 let o_gpu_gateway = null;
 const o_audio_ctx = new (window.AudioContext || window.webkitAudioContext)();
 // Create a gain node (or other nodes you might need)
@@ -64,36 +105,96 @@ o_gain_node.connect(o_audio_ctx.destination);
 let f_v_audio_buffer = async function(s_url) {
     const o_resp = await fetch(s_url);
     const a_n_u8 = await o_resp.arrayBuffer();
-    const audioBuffer = await o_audio_ctx.decodeAudioData(a_n_u8);
-    return audioBuffer;
+    const o_audio_buffer = await o_audio_ctx.decodeAudioData(a_n_u8);
+    return o_audio_buffer;
 }
 
 // Function to play the audio buffer
-let f_play_audio_buffer = function(v_audio_buffer) {
+let f_play_sample_from_track = async function(o_track) {
+    await f_ensure_audio_buffer_and_waveform_canvas(o_track.o_sample)
     const source = o_audio_ctx.createBufferSource();
-    source.buffer = v_audio_buffer;
+    source.buffer = o_track.o_sample._o_audio_buffer;
     source.connect(o_gain_node); // Connect to the gain node
-    source.start(0);
+    let a_n = [o_track.n_nor_sample_1, o_track.n_nor_sample_2].sort()
+    let n_sec_start = a_n[0] * o_track.o_sample._o_audio_buffer.duration;
+    let n_sec_duration = (a_n[1]-a_n[0])* o_track.o_sample._o_audio_buffer.duration
+    source.start(
+        o_audio_ctx.currentTime,
+        n_sec_start, 
+        n_sec_duration
+    );
 }
 
+async function f_o_canvas_waveform(audioBuffer) {
+    // Create a canvas element
+    const canvas = document.createElement('canvas');
+    canvas.width = 300;  // Set the width of the canvas
+    canvas.height = 30; // Set the height of the canvas
+    document.body.appendChild(canvas);
+
+    const ctx = canvas.getContext('2d');
+
+    // Get the audio data from the buffer
+    const channelData = audioBuffer.getChannelData(0); // Assuming mono audio
+
+    // Define the number of samples to plot and the step size
+    const width = canvas.width;
+    const height = canvas.height;
+    const step = Math.ceil(channelData.length / width);
+    const amp = height / 2;
+
+    // Clear the canvas
+    ctx.clearRect(0, 0, width, height);
+
+    // Draw the waveform
+    ctx.fillStyle = 'black';
+    ctx.fillRect(0, 0, width, height);
+    ctx.strokeStyle = 'white';
+    ctx.beginPath();
+    ctx.moveTo(0, amp);
+
+    for (let i = 0; i < width; i++) {
+        const min = Math.min.apply(null, channelData.subarray(i * step, (i + 1) * step));
+        const max = Math.max.apply(null, channelData.subarray(i * step, (i + 1) * step));
+        ctx.lineTo(i, (1 + min) * amp);
+        ctx.lineTo(i, (1 + max) * amp);
+    }
+
+    ctx.stroke();
+    return canvas;
+}
+let f_ensure_audio_buffer_and_waveform_canvas = async function(o_sample){
+    if(!o_sample._o_canvas){
+        o_sample._o_audio_buffer = await f_v_audio_buffer(o_sample.s_url_audio);
+        o_sample._o_canvas = await f_o_canvas_waveform(o_sample._o_audio_buffer)
+        // console.log(o_sample._o_canvas)
+        o_sample._s_dataurl_png = o_sample._o_canvas.toDataURL("image/png");
+    }
+    return true
+}
 let f_update_a_o_sample = async function(){
-    for(let o_sample of o_state.o_beat.a_o_sample){
-        o_sample.v_audio_buffer = await f_v_audio_buffer(o_sample.s_url_audio); 
+    for(let o_sample of o_state.a_o_sample){
+        await f_ensure_audio_buffer_and_waveform_canvas(o_sample)
     }
 }
 
 let o_state = {
+    o_s_key_o_track: {},
+    b_assign_s_char_keyboard: false,
+    a_o_sample,
+    n_idx_a_o_track: 0,
+    a_n_trn_mouse_nor: [],
+    v_o_track: null, 
     o_beat: new O_beat(
         'default', 
         80, 
         false, 
         [
-            new O_sample(
+            new O_track(
+                o_sample__hihat_acoustic01,
                 'hihat', 
-                './hihat.png', 
-                0, 
+                0.,
                 1.,
-                './Samples/hihat-acoustic01.wav', 
                 8, 
                 0,
                 [
@@ -101,49 +202,47 @@ let o_state = {
                         1,
                         [
                             new O_note( (1./8.)*0., (1./8.), 1.0, 1.0), 
-                            new O_note( (1./8.)*1., (1./8.), 1.0, 1.0), 
-                            new O_note( (1./8.)*2., (1./8.), 1.0, 1.0), 
-                            new O_note( (1./8.)*3., (1./8.), 1.0, 1.0), 
-                            new O_note( (1./8.)*4., (1./8.), 1.0, 1.0), 
-                            new O_note( (1./8.)*5., (1./8.), 1.0, 1.0), 
-                            new O_note( (1./8.)*6., (1./8.), 1.0, 1.0), 
-                            new O_note( (1./8.)*7., (1./8.), 1.0, 1.0),
+                            new O_note( (1./8.)*1., (1./8.), 0.0, 1.0), 
+                            new O_note( (1./8.)*2., (1./8.), 0.0, 1.0), 
+                            new O_note( (1./8.)*3., (1./8.), 0.0, 1.0), 
+                            new O_note( (1./8.)*4., (1./8.), 0.0, 1.0), 
+                            new O_note( (1./8.)*5., (1./8.), 0.0, 1.0), 
+                            new O_note( (1./8.)*6., (1./8.), 0.0, 1.0), 
+                            new O_note( (1./8.)*7., (1./8.), 0.0, 1.0),
                         ]
                     )
                 ]
             ),
-            new O_sample(
+            new O_track(
+                o_sample__kick_acoustic01,
                 'kick', 
-                './kick.png', 
                 0, 
                 1.,
-                './Samples/kick-classic.wav', 
-                8, 
+                8,
                 0,
                 [
                     new O_pattern(
-                        4,
+                        2,
                         [
-                            new O_note( (1./4.)*0., (1./8.), 1.0, 1.0), 
-                            new O_note( (1./4.)*3., (1./8.), 1.0, 1.0), 
+                            new O_note( (1./4.)*0., (1./8.), 0.1, 1.0), 
+                            new O_note( (1./4.)*2., (1./8.), 0.1, 1.0), 
                         ]
                     )
                 ]
             ),
-            new O_sample(
+            new O_track(
+                o_sample__snare_acoustic01,
                 'snare', 
-                './snare.png', 
                 0, 
                 1.,
-                './Samples/snare-acoustic01.wav', 
                 8, 
                 0,
                 [
                     new O_pattern(
                         2,
                         [
-                            new O_note( (1./4.)*2., (1./8.), 1.0, 1.0), 
-                            new O_note( (1./4.)*4., (1./8.), 1.0, 1.0), 
+                            new O_note( (1./4.)*1., (1./8.), 1.0, 1.0), 
+                            new O_note( (1./4.)*3., (1./8.), 1.0, 1.0), 
                         ]
                     )
                 ]
@@ -158,9 +257,6 @@ let o_state = {
 }
 window.o_state = o_state
 
-await f_update_a_o_sample();
-
-window.f_play_audio_buffer = f_play_audio_buffer
 window.addEventListener('pointermove', (o_e)=>{
     if(o_gpu_gateway){
         o_state.o_trn_nor_mouse = [
@@ -186,58 +282,216 @@ document.body.appendChild(
             s_tag: 'div', 
             class: "app",
             a_o: [
-                Object.assign(
-                    o_state, 
-                    {
-                        o_js__o_beat: {
-                            f_o_jsh: ()=>{
-                                return {
-                                    class: "o_beat",
-                                    a_o: [
-                                        {
-                                            s_tag: "button", 
-                                            innerText: (o_state.o_beat.b_playing) ? "stop" : "play", 
-                                            onpointerdown: async ()=>{
-                                                o_state.o_beat.b_playing = !o_state.o_beat.b_playing;
-                                                await o_state.o_js__o_beat._f_render();
-                                            }
-                                        },
-                                        {
-                                            s_tag: "input", 
-                                            type: "number", 
-                                            min: 1, 
-                                            max: 300,
-                                            value: o_state.o_beat.n_bpm,
-                                            oninput: (o_e)=>{
-                                                o_state.o_beat.n_bpm = parseFloat(o_e.target.value);
-                                            }
-                                        } ,
-                                        {
-                                            innerText: `BPM`
-                                        },
-                                    ]
-                                }
-                            }
-                        }
-                    }
-                ).o_js__o_beat,
+                // Object.assign(
+                //     o_state, 
+                //     {
+                //         o_js__o_beat: {
+                //             f_o_jsh: ()=>{
+                //                 return {
+                //                     class: "o_beat",
+                //                     a_o: [
+                //                         {
+                //                             s_tag: "button", 
+                //                             innerText: (o_state.o_beat.b_playing) ? "stop" : "play", 
+                //                             onpointerdown: async ()=>{
+                //                                 o_state.o_beat.b_playing = !o_state.o_beat.b_playing;
+                //                                 await o_state.o_js__o_beat._f_render();
+                //                             }
+                //                         },
+                //                         {
+                //                             s_tag: "input", 
+                //                             type: "number", 
+                //                             min: 1, 
+                //                             max: 300,
+                //                             value: o_state.o_beat.n_bpm,
+                //                             oninput: (o_e)=>{
+                //                                 o_state.o_beat.n_bpm = parseFloat(o_e.target.value);
+                //                             }
+                //                         } ,
+                //                         {
+                //                             innerText: `BPM`
+                //                         },
+                //                     ]
+                //                 }
+                //             }
+                //         }
+                //     }
+                // ).o_js__o_beat,
                 {
                     class: "bottom", 
+                    style: 'display:flex',
                     a_o: [
                         Object.assign(
                             o_state, 
                             {
-                                o_js__a_o_sample: {
+                                o_js__a_o_track: {
                                     f_o_jsh: ()=>{
                                         return {
-                                            class: "a_o_sample",
-                                            a_o: o_state.o_beat.a_o_sample.map(o_sample=>{
+                                            class: "a_o_track",
+                                            a_o: o_state.o_beat.a_o_track.map((o_track, n_idx)=>{
 
                                                 return {
                                                     a_o: [
                                                         {
-                                                            innerText: o_sample.s_name
+                                                            innerText: o_track.s_name
                                                         }, 
+                                                        Object.assign(
+                                                            o_track,
+                                                            {
+                                                                _o_js__o_sample: {
+
+                                                                    f_o_jsh: ()=>{
+                                                                        let a_n = [o_track.n_nor_sample_1,o_track.n_nor_sample_2].sort();
+                                                                        return {
+                                                                            class: "o_track_o_sample",
+                                                                            onpointerleave: ()=>{
+                                                                                o_track._n_idx_tmp = null;
+                                                                                o_track._b_pointer_down = false; 
+                                                                            },
+                                                                            onpointerdown: ()=>{
+                                                                                o_track._b_pointer_down = true;
+                                                                            },
+                                                                            onpointerup: ()=>{
+                                                                                o_track._n_idx_tmp = null;
+                                                                                o_track._b_pointer_down = false;
+                                                                            },
+                                                                            onpointermove: async (o_e)=>{
+                                                                                if(o_track._b_pointer_down){
+
+                                                                                    let a_n_trn_mouse_nor = f_a_n_trn__relative_to_o_html__nor(
+                                                                                        [o_e.clientX, o_e.clientY],//a_n__trn_mouse,
+                                                                                        o_e.target.closest(".o_track_o_sample")
+                                                                                    );
+                                                                                    if(!o_track._n_idx_tmp){
+
+                                                                                        let o_tmp = [
+                                                                                            o_track.n_nor_sample_1, 
+                                                                                            o_track.n_nor_sample_2, 
+                                                                                        ].map((n, n_idx)=>{
+                                                                                            return {
+                                                                                                n,
+                                                                                                n_delta: Math.abs(a_n_trn_mouse_nor[0]-n), 
+                                                                                                n_idx: parseInt(n_idx)
+                                                                                            }
+                                                                                        }).sort((o1, o2)=>{return o1.n_delta-o2.n_delta})[0];
+                                                                                        o_track._n_idx_tmp = o_tmp.n_idx
+                                                                                    }
+                                                                                    console.log(a_n_trn_mouse_nor); 
+                                                                                    o_track[`n_nor_sample_${o_track._n_idx_tmp+1}`] = a_n_trn_mouse_nor[0];
+                                                                                    // console.log(o_tmp)
+                                                                                    await o_track._o_js__o_sample._f_render();
+                                                                                }
+                                                                            },
+                                                                            style: [
+                                                                                `position:relative`,
+                                                                                // `background-image: url(${o_track.o_sample._s_dataurl_png})`,
+                                                                            //     `width: 100%`,
+                                                                            //     `min-height: 50px`,
+                                                                            ].join(';'),
+                                                                            a_o: [
+                                                                                {
+                                                                                  style: [
+                                                                                    'height: 100%', 
+                                                                                    "background: rgba(22,22,22,0.8)",
+                                                                                    `left: 0`, 
+                                                                                    `width: ${a_n[0]*100}%`, 
+                                                                                    `position:absolute`,
+                                                                                    'border-right:1px solid white;'
+                                                                                  ].join(';')
+                                                                                },
+                                                                                {
+                                                                                    style: [
+                                                                                      'height: 100%', 
+                                                                                      "background: rgba(22,22,22,0.8)",
+                                                                                      `right: 0`, 
+                                                                                      `width: ${(1.-a_n[1])*100}%`, 
+                                                                                      `position:absolute`,
+                                                                                      'border-left:1px solid white;'
+                                                                                    ].join(';')
+                                                                                  },
+                                                                                {
+                                                                                    b_render: o_track.o_sample._s_dataurl_png, 
+                                                                                    s_tag: "img", 
+                                                                                    src: o_track.o_sample._s_dataurl_png
+                                                                                },
+                                                                            ]
+                                                                        }
+                                                                    }
+                                                                }
+                                                            }
+                                                        )._o_js__o_sample,
+                                                        {
+                                                            s_tag: "button", 
+                                                            innerText: "remove", 
+                                                            onpointerdown: async ()=>{
+                                                                console.log(n_idx)
+                                                                o_state.o_beat.a_o_track.splice(n_idx, 1);
+                                                                f_update_from_o_beat(o_state.o_beat);
+                                                                await o_state.o_js__a_o_track._f_render();
+                                                            }
+                                                        },
+                                                        {
+                                                            s_tag: "button", 
+                                                            innerText: "add sample below", 
+                                                            onpointerdown: async ()=>{
+                                                                o_state.o_beat.a_o_track.splice(n_idx + 1, 0, 
+                                                                    new O_track(
+                                                                        o_track.o_sample, 
+                                                                        o_track.s_name, 
+                                                                        o_track.n_nor_start, 
+                                                                        o_track.n_nor_end, 
+                                                                        o_track.n_grid_divisions, 
+                                                                        o_track.n_idx_a_o_pattern, 
+                                                                        [
+                                                                            new O_pattern(
+                                                                                o_track.a_o_pattern[0].n_length_bars, 
+                                                                                []
+                                                                            )
+                                                                        ]
+                                                                    ),
+                                                                );
+                                                                f_update_from_o_beat(o_state.o_beat);
+                                                                await o_state.o_js__a_o_track._f_render();
+                                                            }
+                                                        },
+                                                        {
+                                                            s_tag: 'select',
+                                                            onchange: async (o_e)=>{
+                                                                let o_sample = o_state.a_o_sample.find(o=>o.s_name == o_e.target.value)
+                                                                o_track.o_sample = o_sample;
+                                                                o_state.o_js__a_o_track._f_render();
+                                                            },
+                                                            a_o: [
+                                                                ...o_state.a_o_sample.map((o_sample,n_idx_a_o_note)=>{
+                                                                    return {
+                                                                        s_tag: 'option',
+                                                                        innerText: o_sample.s_name, 
+                                                                        value: o_sample.s_name,
+                                                                        ...((o_sample.s_name == o_track.o_sample.s_name)? {selected: true} : {})
+                                                                    }
+                                                                })
+                                                            ]
+                                                        }, 
+                                                        {
+                                                            s_tag: "button", 
+                                                            innerText: "play", 
+                                                            onpointerdown: ()=>{
+                                                                f_play_sample_from_track(o_track)
+                                                            }
+                                                        },
+                                                        {
+                                                            s_tag: "button", 
+                                                            innerText: `keyboard shortcut: ${
+                                                                (o_state.b_assign_s_char_keyboard && o_state.o_track == o_track)
+                                                                ? 'press a key to assign' 
+                                                                : (o_track.s_char_keyboard)
+                                                                ? o_track.s_char_keyboard : 'click to assign'}`, 
+                                                            onpointerdown: async ()=>{
+                                                                o_state.o_track = o_track
+                                                                o_state.b_assign_s_char_keyboard = true;
+                                                                await o_state.o_js__a_o_track._f_render();
+                                                            }
+                                                        }
                                                         // icon todo 
                                                         // sample from yt video todo
                                                         // sample from microphone todo
@@ -248,7 +502,8 @@ document.body.appendChild(
                                     }
                                 }
                             }
-                        ).o_js__a_o_sample,
+                        ).o_js__a_o_track,
+
                         {
                             id: "canvas_parent"
                         }
@@ -258,6 +513,20 @@ document.body.appendChild(
         }
     )
 );
+window.onkeydown = async function(o_e){
+    if(o_state.b_assign_s_char_keyboard){
+        o_state.o_track.s_char_keyboard = o_e.key
+        o_state.o_s_key_o_track[o_e.key] = o_state.o_track;
+        o_state.b_assign_s_char_keyboard = false;
+        await o_state.o_js__a_o_track._f_render();
+    }else{
+
+        let o_track = o_state.o_s_key_o_track[o_e.key];
+        if(o_track){
+            f_play_sample_from_track(o_track)
+        }
+    }
+}
 
 let o_canvas = document.createElement('canvas');
 o_canvas.width = window.innerWidth
@@ -266,10 +535,10 @@ document.querySelector("#canvas_parent").appendChild(o_canvas);
 
 
 // we are going to missuse a texture to pass multidimensional data to the shader, 
-// each row of the texture is dedicated to a o_sample
+// each row of the texture is dedicated to a o_track
 // each 
 
-let n_len_a_o_sample_max = 120;
+let n_len_a_o_track_max = 120;
 let n_len_a_o_note_max = 1024;
 
 
@@ -298,10 +567,10 @@ o_gpu_gateway = f_o_gpu_gateway(
     uniform vec2 o_scl_canvas;
     uniform vec4 a_o_col[${n_len_a_o_trn}];
     uniform float n_len_a_o_col;
-    uniform float n_len_a_o_sample;
-    uniform float n_len_a_o_sample_max;
+    uniform float n_len_a_o_track;
+    uniform float n_len_a_o_track_max;
     uniform float n_len_a_o_note_max; 
-    uniform float a_n_len_a_o_note[${n_len_a_o_sample_max}];
+    uniform float a_n_len_a_o_note[${n_len_a_o_track_max}];
     uniform sampler2D o_texture;
 
     float f_n_square(
@@ -309,6 +578,7 @@ o_gpu_gateway = f_o_gpu_gateway(
         vec2 o_trn, 
         vec2 o_scl
     ){
+    //https://www.shadertoy.com/view/l3K3Dy
         o_trn_pix.y = 1.-o_trn_pix.y;
         vec2 o_diff = o_trn_pix-o_trn-o_scl;
         o_diff*=2.;    
@@ -319,43 +589,45 @@ o_gpu_gateway = f_o_gpu_gateway(
         return 1.-n; 
     }
     void main() {
-
-        vec2 o_trn_nor_pixel_from_zero = o_trn_nor_pixel+vec2(0.5);
+        float n1 = o_scl_canvas.x / o_scl_canvas.y;
+        vec2 o_trn_nor_pixel_from_zero = o_trn_nor_pixel+vec2(.5, .5);//.5-(n1/2.));
         float n_idx_a_o_col = abs(o_trn_nor_pixel_from_zero.y*n_len_a_o_col);
         fragColor = a_o_col[int(n_idx_a_o_col)];
         // fragColor = vec4(o_trn_nor_pixel_from_zero.y);
         
-        // float n_idx_a_o_sample = abs(o_trn_nor_pixel_from_zero.y*n_len_a_o_sample);
+        // float n_idx_a_o_track = abs(o_trn_nor_pixel_from_zero.y*n_len_a_o_track);
 
         float n_min = 1.;
 
-        for(float n_idx_a_o_sample = 0.; n_idx_a_o_sample < n_len_a_o_sample; n_idx_a_o_sample+=1.){
+        for(float n_idx_a_o_track = 0.; n_idx_a_o_track < n_len_a_o_track; n_idx_a_o_track+=1.){
 
-            float n_len_a_o_note = a_n_len_a_o_note[int(n_idx_a_o_sample)];
+            float n_len_a_o_note = a_n_len_a_o_note[int(n_idx_a_o_track)];
             float n_idx_a_o_note = 0.;
             for(float n_idx_a_o_note = 0.; n_idx_a_o_note < n_len_a_o_note; n_idx_a_o_note+=1.){
     
-                vec4 o_note = texture(o_texture, 
-                    vec2(
-                        n_idx_a_o_note/n_len_a_o_note_max,
-                        n_len_a_o_sample/n_idx_a_o_sample
-                    )
+                vec4 o_note = texelFetch(
+                    o_texture,
+                    ivec2(
+                        int(n_idx_a_o_note),
+                        int(n_idx_a_o_track)
+                    ), 
+                    0
                 );
-    
+
                 float n_nor_start = o_note[0];
                 float n_nor_duration = o_note[1];
                 float n_nor_velocity = o_note[2];
                 float n_nor_pitch = o_note[3];
 
                 vec2 o_trn = vec2(
-                    0.0,//n_nor_start,
-                    n_idx_a_o_sample / 10.
+                    n_nor_start,
+                    n_idx_a_o_track/n_len_a_o_track
                 );
                 vec2 o_scl = vec2(
-                    0.2, //n_nor_duration, 
-                    0.2 //1./n_len_a_o_sample
+                    n_nor_duration, 
+                    1./n_len_a_o_track
                 );
-                float n = f_n_square(
+                float n = 1.-f_n_square(
                     o_trn_nor_pixel_from_zero, 
                     o_trn, 
                     o_scl
@@ -369,22 +641,34 @@ o_gpu_gateway = f_o_gpu_gateway(
         }
 
 
-        // float n_idx = abs(o_trn_nor_pixel_from_zero.y*n_len_a_o_sample);
+        // float n_idx = abs(o_trn_nor_pixel_from_zero.y*n_len_a_o_track);
         // fragColor = vec4(a_n_len_a_o_note[int(n_idx)]);
-    
-        // vec4 o_test = texture(o_texture, 
-        //     vec2(
-        //         0.001,
-        //         0.0
-        //     )
+
+                        
+        fragColor = vec4(vec3(n_min), 1.);
+        // vec4 o_tmp = texture(
+        //     o_texture,
+        //     o_trn_nor_pixel_from_zero*vec2(1024.,120.)
         // );
-        // float n = length(
-        //     o_trn_nor_pixel_from_zero.xy - o_test.xy
-        // )*20.;
-        fragColor = vec4(n_min);
+        // fragColor = vec4(o_tmp.xyz, 1.);
+        // fragColor = vec4(o_trn_nor_pixel_from_zero.yyy,1.);
     }
     `,
 )
+
+await f_update_a_o_sample();
+o_state.o_js__a_o_track._f_render();
+o_canvas.onpointermove = function(o_e){
+
+    let o_el = o_e.target;
+    o_state.a_n_trn_mouse_nor = f_a_n_trn__relative_to_o_html__nor(
+        [o_e.clientX, o_e.clientY],//a_n__trn_mouse,
+        o_canvas
+    );
+    o_state.n_idx_a_o_track = parseInt(o_state.a_n_trn_mouse_nor[1] * o_state.o_beat.a_o_track.length)
+    o_state.v_o_track = o_state.o_beat.a_o_track[o_state.n_idx_a_o_track];
+    console.log(o_state.v_o_track);
+}
 
 
 var a_o_col = new Float32Array(
@@ -401,7 +685,7 @@ o_gl.bufferData(o_gl.ARRAY_BUFFER, a_o_col, o_gl.STATIC_DRAW);
 var o_location_a_o_col = o_gl.getUniformLocation(o_gpu_gateway.o_shader__program, 'a_o_col');
 o_gl.uniform4fv(o_location_a_o_col, a_o_col);
 
-let a_n_len_a_o_note = new Float32Array(new Array(n_len_a_o_sample_max).fill(0).map(()=>{return Math.random()}))
+let a_n_len_a_o_note = new Float32Array(new Array(n_len_a_o_track_max).fill(0));//.map(()=>{return Math.random()}))
 
 const o_location_a_n_len_a_o_note = o_gl.getUniformLocation(o_gpu_gateway.o_shader__program, 'a_n_len_a_o_note');
 
@@ -418,7 +702,7 @@ o_gl.texParameteri(o_gl.TEXTURE_2D, o_gl.TEXTURE_MAG_FILTER, o_gl.NEAREST);
 
 // Initialize the texture with a Uint8Array
 const n_scl_x = n_len_a_o_note_max;
-const n_scl_y = n_len_a_o_sample_max;
+const n_scl_y = n_len_a_o_track_max;
 const a_n_u8_texture = new Uint8Array(n_scl_x * n_scl_y * 4); // RGBA format
 for (let n_i = 0; n_i < a_n_u8_texture.length; n_i++) {
     a_n_u8_texture[n_i] = 0; // Example data
@@ -463,28 +747,32 @@ window.addEventListener('resize',()=>{
 f_resize()
 
 let f_update_from_o_beat = function(o_beat){
-    for(let n_idx_a_o_sample in o_beat.a_o_sample){
-        n_idx_a_o_sample = parseInt(n_idx_a_o_sample)
-        let o_sample = o_beat.a_o_sample[n_idx_a_o_sample];
-        let o_pattern = o_sample.a_o_pattern[o_sample.n_idx_a_o_pattern];
-        a_n_len_a_o_note[n_idx_a_o_sample] = o_pattern.a_o_note.length;
+    for(let n_idx_a_o_track in o_beat.a_o_track){
+        n_idx_a_o_track = parseInt(n_idx_a_o_track)
+        let o_track = o_beat.a_o_track[n_idx_a_o_track];
+        let o_pattern = o_track.a_o_pattern[o_track.n_idx_a_o_pattern];
+        a_n_len_a_o_note[n_idx_a_o_track] = o_pattern.a_o_note.length;
         for(let n_idx_a_o_note in o_pattern.a_o_note){
             n_idx_a_o_note = parseInt(n_idx_a_o_note)
             let o_note = o_pattern.a_o_note[n_idx_a_o_note];
-            let n_trn_y = n_idx_a_o_sample;
+            let n_trn_y = n_idx_a_o_track;
             let n_trn_x = n_idx_a_o_note;
-            // debugger
+            let n_idx_a_n_u8_y = n_trn_y*n_scl_x*4;
+            let n_idx_n_u8 = n_idx_a_n_u8_y+(n_trn_x*4);
             // console.log(
             //     n_trn_y*n_scl_x*4+n_trn_x+1, 
             //     o_note.n_nor_duration
             // )
-            a_n_u8_texture[n_trn_y*n_scl_x*4+n_trn_x+0] = (o_note.n_nor_start)*255;
-            a_n_u8_texture[n_trn_y*n_scl_x*4+n_trn_x+1] = (o_note.n_nor_duration)*255;
-            a_n_u8_texture[n_trn_y*n_scl_x*4+n_trn_x+2] = (o_note.n_nor_velocity)*255;
-            a_n_u8_texture[n_trn_y*n_scl_x*4+n_trn_x+3] = (o_note.n_nor_pitch)*255;
+            a_n_u8_texture[n_idx_n_u8+0] = (o_note.n_nor_start)*255;
+            a_n_u8_texture[n_idx_n_u8+1] = (o_note.n_nor_duration)*255;
+            a_n_u8_texture[n_idx_n_u8+2] = (o_note.n_nor_velocity)*255;
+            a_n_u8_texture[n_idx_n_u8+3] = (o_note.n_nor_pitch)*255;
             // console.log(a_n_u8_texture)
         }
     }
+
+    // debugger
+    o_gpu_gateway.o_ctx.uniform1fv(o_location_a_n_len_a_o_note, a_n_len_a_o_note);
 
     f_update_a_n_u8_texture(a_n_u8_texture)
 }
@@ -499,13 +787,9 @@ let f_raf = function(){
     n_id_raf = window.requestAnimationFrame(f_raf);
 
 
-    let a_n_len_a_o_note = new Float32Array(new Array(n_len_a_o_sample_max).fill(0).map(()=>{return Math.random()}))
 
     if(o_gpu_gateway){
 
-        o_gpu_gateway.o_ctx.uniform1fv(o_location_a_n_len_a_o_note, a_n_len_a_o_note);
-    
-        console.log("asdf")
     
         let o_dir = [
             o_state.o_trn_nor_mouse[0] - o_state.o_trn_nor_mouse_follow[0],
@@ -525,14 +809,14 @@ let f_raf = function(){
         
     
         // o_gpu_gateway.o_ctx.uniform4fv(o_location_a_o_col, a_o_col); // update
-        let n_len_a_o_sample = o_state.o_beat.a_o_sample.length;
-        console.log({n_len_a_o_sample})
+        let n_len_a_o_track = o_state.o_beat.a_o_track.length;
+        // console.log({n_len_a_o_track})
         f_update_data_in_o_gpu_gateway(
             {
                 n_len_a_o_col: a_o_col.length/4,
                 n_ms_time: window.performance.now(), 
-                n_len_a_o_sample_max, 
-                n_len_a_o_sample, 
+                n_len_a_o_track_max, 
+                n_len_a_o_track, 
                 n_len_a_o_note_max
             }, 
             o_gpu_gateway, 
