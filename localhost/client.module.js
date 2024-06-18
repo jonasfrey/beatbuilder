@@ -59,6 +59,16 @@ f_add_css(
     //     pointer-events: none;    /* Prevent image from being interacted with */
     // }
     `
+    #canvas_parent{
+        position: relative;
+        flex: 1;
+    }
+    #canvas_parent canvas{
+        position: absolute;
+        left: 0;
+        top: 0;
+        z-index:1;
+    }
     .o_track_o_sample , 
     .o_track_o_sample img{
         min-width: 100%;
@@ -110,7 +120,7 @@ let f_v_audio_buffer = async function(s_url) {
 }
 
 // Function to play the audio buffer
-let f_play_sample_from_track = async function(o_track) {
+let f_play_sample_from_track = async function(o_track, o_note) {
     await f_ensure_audio_buffer_and_waveform_canvas(o_track.o_sample)
     const source = o_audio_ctx.createBufferSource();
     source.buffer = o_track.o_sample._o_audio_buffer;
@@ -118,11 +128,17 @@ let f_play_sample_from_track = async function(o_track) {
     let a_n = [o_track.n_nor_sample_1, o_track.n_nor_sample_2].sort()
     let n_sec_start = a_n[0] * o_track.o_sample._o_audio_buffer.duration;
     let n_sec_duration = (a_n[1]-a_n[0])* o_track.o_sample._o_audio_buffer.duration
+    o_note._b_playing = true;
     source.start(
         o_audio_ctx.currentTime,
         n_sec_start, 
         n_sec_duration
     );
+    source.onended = function() {
+        o_note._b_playing = false;
+        // Do something when the sound finishes
+        // console.log('Audio playback finished.');
+    };
 }
 
 async function f_o_canvas_waveform(audioBuffer) {
@@ -130,7 +146,7 @@ async function f_o_canvas_waveform(audioBuffer) {
     const canvas = document.createElement('canvas');
     canvas.width = 300;  // Set the width of the canvas
     canvas.height = 30; // Set the height of the canvas
-    document.body.appendChild(canvas);
+    // document.body.appendChild(canvas);
 
     const ctx = canvas.getContext('2d');
 
@@ -178,7 +194,25 @@ let f_update_a_o_sample = async function(){
     }
 }
 
+let n_button_left = 0;
+let n_button_middle = 1;
+let n_button_right = 2;
+
 let o_state = {
+
+    n_beats_per_loop:0,
+    n_sec_per_beat:0,
+    n_ms_per_beat:0,
+    n_time_playhead: 0,
+    n_nor_playhead: 0,
+    n_idx_a_o_track: null,
+    o_track: null,
+    n_idx_a_o_note: null,
+    n_nor_start: null,
+    v_n_idx_a_o_note: null,
+    o_note: null,
+
+    a_n_button_down_canvas: [],
     o_s_key_o_track: {},
     b_assign_s_char_keyboard: false,
     a_o_sample,
@@ -187,7 +221,7 @@ let o_state = {
     v_o_track: null, 
     o_beat: new O_beat(
         'default', 
-        80, 
+        90, 
         false, 
         [
             new O_track(
@@ -199,7 +233,6 @@ let o_state = {
                 0,
                 [
                     new O_pattern(
-                        1,
                         [
                             new O_note( (1./8.)*0., (1./8.), 1.0, 1.0), 
                             new O_note( (1./8.)*1., (1./8.), 0.0, 1.0), 
@@ -222,7 +255,6 @@ let o_state = {
                 0,
                 [
                     new O_pattern(
-                        2,
                         [
                             new O_note( (1./4.)*0., (1./8.), 0.1, 1.0), 
                             new O_note( (1./4.)*2., (1./8.), 0.1, 1.0), 
@@ -239,7 +271,6 @@ let o_state = {
                 0,
                 [
                     new O_pattern(
-                        2,
                         [
                             new O_note( (1./4.)*1., (1./8.), 1.0, 1.0), 
                             new O_note( (1./4.)*3., (1./8.), 1.0, 1.0), 
@@ -247,7 +278,8 @@ let o_state = {
                     )
                 ]
             )
-        ]
+        ], 
+        1
     ),
     s_msg: '', 
     a_o_msg: [], 
@@ -282,41 +314,58 @@ document.body.appendChild(
             s_tag: 'div', 
             class: "app",
             a_o: [
-                // Object.assign(
-                //     o_state, 
-                //     {
-                //         o_js__o_beat: {
-                //             f_o_jsh: ()=>{
-                //                 return {
-                //                     class: "o_beat",
-                //                     a_o: [
-                //                         {
-                //                             s_tag: "button", 
-                //                             innerText: (o_state.o_beat.b_playing) ? "stop" : "play", 
-                //                             onpointerdown: async ()=>{
-                //                                 o_state.o_beat.b_playing = !o_state.o_beat.b_playing;
-                //                                 await o_state.o_js__o_beat._f_render();
-                //                             }
-                //                         },
-                //                         {
-                //                             s_tag: "input", 
-                //                             type: "number", 
-                //                             min: 1, 
-                //                             max: 300,
-                //                             value: o_state.o_beat.n_bpm,
-                //                             oninput: (o_e)=>{
-                //                                 o_state.o_beat.n_bpm = parseFloat(o_e.target.value);
-                //                             }
-                //                         } ,
-                //                         {
-                //                             innerText: `BPM`
-                //                         },
-                //                     ]
-                //                 }
-                //             }
-                //         }
-                //     }
-                // ).o_js__o_beat,
+                Object.assign(
+                    o_state, 
+                    {
+                        o_js__o_beat: {
+                            f_o_jsh: ()=>{
+                                return {
+                                    class: "o_beat",
+                                    style: 'display:flex;',
+                                    a_o: [
+                                        {
+                                            s_tag: "button", 
+                                            innerText: (o_state.o_beat.b_playing) ? "stop" : "play", 
+                                            onpointerdown: async ()=>{
+                                                o_state.o_beat.b_playing = !o_state.o_beat.b_playing;
+                                                await o_state.o_js__o_beat._f_render();
+                                            }
+                                        },
+                                        {
+                                            innerText: `BPM`
+                                        },
+                                        {
+                                            s_tag: "input", 
+                                            type: "number", 
+                                            min: 1, 
+                                            max: 300,
+                                            value: o_state.o_beat.n_bpm,
+                                            oninput: async (o_e)=>{
+                                                o_state.o_beat.n_bpm = parseFloat(o_e.target.value);
+                                                await f_update_from_o_beat(o_state.o_beat)
+                                            }
+                                        } ,
+                                        {
+                                            innerText: `Bars`
+                                        },
+                                        {
+                                            s_tag: "input", 
+                                            type: "number", 
+                                            min: 1, 
+                                            max: 32,
+                                            value: o_state.o_beat.n_bars,
+                                            oninput: async (o_e)=>{
+                                                o_state.o_beat.n_bars = parseFloat(o_e.target.value);
+                                                await f_update_from_o_beat(o_state.o_beat)
+                                            }
+                                        } ,
+
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                ).o_js__o_beat,
                 {
                     class: "bottom", 
                     style: 'display:flex',
@@ -570,6 +619,7 @@ o_gpu_gateway = f_o_gpu_gateway(
     uniform float n_len_a_o_track;
     uniform float n_len_a_o_track_max;
     uniform float n_len_a_o_note_max; 
+    uniform float n_nor_playhead; 
     uniform float a_n_len_a_o_note[${n_len_a_o_track_max}];
     uniform sampler2D o_texture;
 
@@ -644,8 +694,11 @@ o_gpu_gateway = f_o_gpu_gateway(
         // float n_idx = abs(o_trn_nor_pixel_from_zero.y*n_len_a_o_track);
         // fragColor = vec4(a_n_len_a_o_note[int(n_idx)]);
 
-                        
+        float n_d_playhead = 1.-length(o_trn_nor_pixel_from_zero.x - n_nor_playhead);
+        n_d_playhead = pow((n_d_playhead-.5), 3.5)*10.;
+        n_d_playhead = clamp(n_d_playhead, 0., 1.);
         fragColor = vec4(vec3(n_min), 1.);
+        fragColor.xyz += vec3(n_d_playhead);
         // vec4 o_tmp = texture(
         //     o_texture,
         //     o_trn_nor_pixel_from_zero*vec2(1024.,120.)
@@ -658,19 +711,127 @@ o_gpu_gateway = f_o_gpu_gateway(
 
 await f_update_a_o_sample();
 o_state.o_js__a_o_track._f_render();
-o_canvas.onpointermove = function(o_e){
+
+
+let f_update_from_a_n_trn_mouse_nor = function(a_n_trn_mouse_nor){
+
+    let n_idx_a_o_track = parseInt(a_n_trn_mouse_nor[1]*o_state.o_beat.a_o_track.length)
+    let o_track = o_state.o_beat.a_o_track[n_idx_a_o_track];
+    let n_idx_a_o_note = parseInt(a_n_trn_mouse_nor[0]*o_track.n_grid_divisions)
+    let n_nor_start = n_idx_a_o_note/o_track.n_grid_divisions;
+    let v_n_idx_a_o_note = null;
+    let o_note = o_track.a_o_pattern[0].a_o_note.find((o, n_idx)=>{
+        
+        if(a_n_trn_mouse_nor[0] >= o.n_nor_start
+                && a_n_trn_mouse_nor[0] < (o.n_nor_start+o.n_nor_duration) ){
+                    v_n_idx_a_o_note = parseInt(n_idx)
+                    return true
+        }
+        return false
+    })
+
+    Object.assign(
+        o_state, 
+        {
+            n_idx_a_o_track,
+            o_track,
+            n_idx_a_o_note,
+            n_nor_start,
+            v_n_idx_a_o_note,
+            o_note,
+        }
+    )
+
+}
+let f_add_note = async function(){
+    
+    f_update_from_a_n_trn_mouse_nor(o_state.a_n_trn_mouse_nor);
+
+    o_state.o_note = new O_note(
+        o_state.n_nor_start, 
+        1./o_state.o_track.n_grid_divisions, 
+        1.0, 
+        1.0
+    )
+    
+    o_state.a_n_trn_mouse_nor[0]*o_state.o_track.a_o_pattern[0].a_o_note.push(
+        o_state.o_note
+    )
+
+    await f_update_from_o_beat(o_state.o_beat);
+
+}
+let f_remove_note = async function(){
+    f_update_from_a_n_trn_mouse_nor(o_state.a_n_trn_mouse_nor);
+
+    if(o_state.o_note){
+        o_state.a_n_trn_mouse_nor[0]*o_state.o_track.a_o_pattern[0].a_o_note.splice(
+            o_state.v_n_idx_a_o_note,
+            1
+        )
+        await f_update_from_o_beat(o_state.o_beat);
+    }
+
+}
+
+o_canvas.addEventListener("pointermove", async function(o_e){
 
     let o_el = o_e.target;
     o_state.a_n_trn_mouse_nor = f_a_n_trn__relative_to_o_html__nor(
         [o_e.clientX, o_e.clientY],//a_n__trn_mouse,
         o_canvas
     );
-    o_state.n_idx_a_o_track = parseInt(o_state.a_n_trn_mouse_nor[1] * o_state.o_beat.a_o_track.length)
-    o_state.v_o_track = o_state.o_beat.a_o_track[o_state.n_idx_a_o_track];
-    console.log(o_state.v_o_track);
-}
+    f_update_from_a_n_trn_mouse_nor(o_state.a_n_trn_mouse_nor)
 
 
+    if(o_state.a_n_button_down_canvas.includes(n_button_left)){
+        await f_add_note();
+    }
+    if(o_state.a_n_button_down_canvas.includes(n_button_right)){
+        await f_remove_note();
+    }
+
+})
+
+o_canvas.addEventListener('contextmenu', function(o_e) {
+    o_e.preventDefault();
+});
+
+o_canvas.addEventListener("pointerdown", async function(o_e){
+    o_state.a_n_button_down_canvas.push(o_e.button)
+    console.log(o_state.a_n_button_down_canvas)
+    
+    o_state.a_n_trn_mouse_nor = f_a_n_trn__relative_to_o_html__nor(
+        [o_e.clientX, o_e.clientY],//a_n__trn_mouse,
+        o_canvas
+    );
+    f_update_from_a_n_trn_mouse_nor(o_state.a_n_trn_mouse_nor)
+    if(o_e.button == n_button_left){
+        await f_add_note();
+    }
+    if(o_e.button == n_button_right){
+        await f_remove_note();
+    }
+
+})
+o_canvas.addEventListener("pointerup", function(o_e){
+
+    o_state.a_n_button_down_canvas = o_state.a_n_button_down_canvas.filter(n=>{
+        return n!=o_e.button
+    })
+
+    o_state.a_n_trn_mouse_nor = f_a_n_trn__relative_to_o_html__nor(
+        [o_e.clientX, o_e.clientY],//a_n__trn_mouse,
+        o_canvas
+    );
+    f_update_from_a_n_trn_mouse_nor(o_state.a_n_trn_mouse_nor)
+})
+
+window.addEventListener("pointerup",  function(o_e){
+    o_state.a_n_button_down_canvas.filter(n=>{
+        n!=o_e.button
+    })
+})
 var a_o_col = new Float32Array(
     [
         0.2, 0.3, 0.3, 1.0,
@@ -751,6 +912,8 @@ let f_update_from_o_beat = function(o_beat){
         n_idx_a_o_track = parseInt(n_idx_a_o_track)
         let o_track = o_beat.a_o_track[n_idx_a_o_track];
         let o_pattern = o_track.a_o_pattern[o_track.n_idx_a_o_pattern];
+
+        
         a_n_len_a_o_note[n_idx_a_o_track] = o_pattern.a_o_note.length;
         for(let n_idx_a_o_note in o_pattern.a_o_note){
             n_idx_a_o_note = parseInt(n_idx_a_o_note)
@@ -770,6 +933,10 @@ let f_update_from_o_beat = function(o_beat){
             // console.log(a_n_u8_texture)
         }
     }
+    o_state.n_beats_per_loop = o_state.o_beat.n_bars*4;
+    o_state.n_sec_per_beat = 60 / o_state.o_beat.n_bpm;
+    o_state.n_ms_per_beat = o_state.n_sec_per_beat*1000; 
+    // longest pattern
 
     // debugger
     o_gpu_gateway.o_ctx.uniform1fv(o_location_a_n_len_a_o_note, a_n_len_a_o_note);
@@ -781,12 +948,39 @@ f_update_from_o_beat(o_state.o_beat);
 
 
 let n_ms_wpn = 0;
+let n_ms_wpn__last = 0;
 let n_id_raf = 0;
 let f_raf = function(){
 
     n_id_raf = window.requestAnimationFrame(f_raf);
 
+    n_ms_wpn = window.performance.now();
+    let n_ms_wpn_delta = Math.abs(n_ms_wpn__last -n_ms_wpn);
+    n_ms_wpn__last = n_ms_wpn;
 
+
+    if(o_state.o_beat.b_playing){
+        
+        o_state.n_time_playhead = (o_state.n_time_playhead + (n_ms_wpn_delta / (o_state.n_beats_per_loop * o_state.n_ms_per_beat)))
+        
+        let _n_time_playhead_parseint = parseInt(o_state.n_time_playhead);;
+        // console.log(o_state.n_time_playhead);
+        o_state.n_nor_playhead = o_state.n_time_playhead % 1.0
+        for(let o_track of o_state.o_beat.a_o_track){
+            let o_note = o_track.a_o_pattern[0].a_o_note.find((o, n_idx)=>{
+                return (o_state.n_nor_playhead >= o.n_nor_start
+                        && o_state.n_nor_playhead < (o.n_nor_start+o.n_nor_duration)
+                        )
+            })
+            if(o_note){
+                if(o_note._n_time_playhead_parseint != _n_time_playhead_parseint){
+                    f_play_sample_from_track(o_track, o_note);
+                    o_note._n_time_playhead_parseint = _n_time_playhead_parseint
+                }
+            }
+        
+        }
+    }
 
     if(o_gpu_gateway){
 
@@ -817,7 +1011,8 @@ let f_raf = function(){
                 n_ms_time: window.performance.now(), 
                 n_len_a_o_track_max, 
                 n_len_a_o_track, 
-                n_len_a_o_note_max
+                n_len_a_o_note_max, 
+                n_nor_playhead: o_state.n_nor_playhead
             }, 
             o_gpu_gateway, 
         )

@@ -5,12 +5,14 @@ class O_beat{
         s_name, 
         n_bpm, 
         b_playing, 
-        a_o_track
+        a_o_track, 
+        n_bars
     ){
         this.s_name = s_name, 
         this.n_bpm = n_bpm, 
         this.b_playing = b_playing
         this.a_o_track = a_o_track
+        this.n_bars = n_bars
     }
 }
 class O_note{
@@ -29,10 +31,8 @@ class O_note{
 
 class O_pattern{
     constructor(
-        n_length_bars, 
         a_o_note
     ){
-        this.n_length_bars = n_length_bars, 
         this.a_o_note = a_o_note
     }
 }
