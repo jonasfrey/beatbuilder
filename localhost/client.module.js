@@ -59,6 +59,11 @@ f_add_css(
     //     pointer-events: none;    /* Prevent image from being interacted with */
     // }
     `
+    input[type="color"] {
+        padding: 0.3rem;
+        height: 2.2rem;
+        margin: 0;
+    }
     #canvas_parent{
         position: relative;
         flex: 1;
@@ -193,13 +198,30 @@ let f_update_a_o_sample = async function(){
         await f_ensure_audio_buffer_and_waveform_canvas(o_sample)
     }
 }
+let f_s_color_rgba_from_a_n_nor_channelcolorrgba = function(a_n){
+    let s = `rgba(${a_n.slice(0,3).map(n=>n*255)}, ${a_n[3]})`
+    console.log(s)
+    return s
+}
+let f_s_color_hex_from_a_n_nor_channelcolorrgba = function(a_n
+){
+    let s = `#${a_n.slice(0,3).map(n=>(n*255).toString(16).padStart(2,'0')).join('')}`
+    console.log(s)
+    return s
+}
 
 let n_button_left = 0;
 let n_button_middle = 1;
 let n_button_right = 2;
 
-let o_state = {
 
+let n_len_a_o_track_max =  120;
+let n_len_a_o_note_max =  1024;
+let o_state = {
+    a_n_len_a_o_note : new Float32Array(new Array(n_len_a_o_track_max).fill(0)),
+    a_o_col_track : new Float32Array(new Array(n_len_a_o_track_max*4).fill(0)),
+    n_len_a_o_track_max,
+    n_len_a_o_note_max,
     n_beats_per_loop:0,
     n_sec_per_beat:0,
     n_ms_per_beat:0,
@@ -244,7 +266,9 @@ let o_state = {
                             new O_note( (1./8.)*7., (1./8.), 0.0, 1.0),
                         ]
                     )
-                ]
+                ], 
+                'j',
+                [1,0,0,1]
             ),
             new O_track(
                 o_sample__kick_acoustic01,
@@ -260,7 +284,9 @@ let o_state = {
                             new O_note( (1./4.)*2., (1./8.), 0.1, 1.0), 
                         ]
                     )
-                ]
+                ],
+                'k',
+                [1,0,1,1]
             ),
             new O_track(
                 o_sample__snare_acoustic01,
@@ -276,7 +302,10 @@ let o_state = {
                             new O_note( (1./4.)*3., (1./8.), 1.0, 1.0), 
                         ]
                     )
-                ]
+                ], 
+                'l',
+                [1,1,0,1]
+
             )
         ], 
         1
@@ -540,6 +569,14 @@ document.body.appendChild(
                                                                 o_state.b_assign_s_char_keyboard = true;
                                                                 await o_state.o_js__a_o_track._f_render();
                                                             }
+                                                        }, 
+                                                        {
+                                                            s_tag: "input",
+                                                            type: "color", 
+                                                            value: f_s_color_hex_from_a_n_nor_channelcolorrgba(o_track.a_n_nor_channelcolorrgba),
+                                                            oninput: (o_e)=>{
+                                                                f_update_o_track__colors(o_track,o_e.target.value);
+                                                            } 
                                                         }
                                                         // icon todo 
                                                         // sample from yt video todo
@@ -587,8 +624,6 @@ document.querySelector("#canvas_parent").appendChild(o_canvas);
 // each row of the texture is dedicated to a o_track
 // each 
 
-let n_len_a_o_track_max = 120;
-let n_len_a_o_note_max = 1024;
 
 
 
@@ -620,8 +655,9 @@ o_gpu_gateway = f_o_gpu_gateway(
     uniform float n_len_a_o_track_max;
     uniform float n_len_a_o_note_max; 
     uniform float n_nor_playhead; 
-    uniform float a_n_len_a_o_note[${n_len_a_o_track_max}];
+    uniform float a_n_len_a_o_note[${o_state.n_len_a_o_track_max}];
     uniform sampler2D o_texture;
+
 
     float f_n_square(
         vec2 o_trn_pix,
@@ -636,8 +672,96 @@ o_gpu_gateway = f_o_gpu_gateway(
     
         o_diff*=1./(o_scl);
         float n = max(abs(o_diff.x), abs(o_diff.y));
-        return 1.-n; 
+        return n; 
     }
+    float f_n_circle(
+        vec2 o_trn_pix,
+        vec2 o_trn, 
+        vec2 o_scl
+    ){
+    //https://www.shadertoy.com/view/l3K3Dy
+        o_trn_pix.y = 1.-o_trn_pix.y;
+        vec2 o_diff = o_trn_pix-o_trn-o_scl;
+        o_diff*=2.;    
+        o_diff+=o_scl;
+    
+        o_diff*=1./(o_scl);
+        float n = length(o_diff);
+        return n; 
+    }
+    float f_n_squircle(
+        vec2 o_trn_pix,
+        vec2 o_trn, 
+        vec2 o_scl, 
+        float n_t
+    ){
+    
+        float n1 = f_n_square(
+            o_trn_pix,
+            o_trn,
+            o_scl
+        );
+        float n2 = f_n_circle(
+            o_trn_pix,
+            o_trn,
+            o_scl 
+        );
+        float n_int = n_t*n1 + (1.-n_t)*n2;
+        return n_int;
+    }
+    vec4 f_o_note(
+        vec2 o_trn_pix,
+        vec2 o_trn, 
+        vec2 o_scl, 
+        float n_t_squircle,
+        float n_nor_velocity, 
+        float n_nor_pitch,
+        vec4 o_col
+    ){
+    
+        float n_aa = (1./(o_scl_canvas.x))*9.;
+    
+        float n_int_o = f_n_squircle(
+            o_trn_pix, 
+            o_trn,
+            o_scl, 
+            n_t_squircle
+        );
+        
+        float n_y = 0.;
+        // vertical center line of the note
+        float n_x_center1 = o_trn_pix.x-(o_trn.x+o_scl.x/2.);
+        float n_x_center = 1.-pow(abs(n_x_center1),1./5.);//+
+        
+        // left or right side of center line
+        // left is velocity
+        // right is pitch
+        float n_ytmp = 0.;
+        if(n_x_center1 > 0.){
+            n_ytmp = o_trn_pix.y-(1.-o_trn.y)+o_scl.y*(1.-n_nor_velocity);
+        }else{
+            n_ytmp = o_trn_pix.y-(1.-o_trn.y)+o_scl.y*(1.-n_nor_pitch);
+        }
+        
+        // the level/mask of the velocity or pitch on the y axis
+        float n_velpitch = smoothstep(
+            0.,
+            0.-n_aa,
+            n_ytmp
+        );
+        n_velpitch = smoothstep(1.0, 1.0-n_aa,n_int_o)*n_velpitch;
+        n_velpitch*= n_x_center;
+    
+        
+        float n_int = abs(n_int_o-1.);
+        n_int = pow(n_int, 1./5.);
+        n_int = 1.-n_int;
+        //n_int = n_int_o;
+    
+    
+        return (o_col*n_int+o_col*n_velpitch);
+    }
+
     void main() {
         float n1 = o_scl_canvas.x / o_scl_canvas.y;
         vec2 o_trn_nor_pixel_from_zero = o_trn_nor_pixel+vec2(.5, .5);//.5-(n1/2.));
@@ -649,6 +773,11 @@ o_gpu_gateway = f_o_gpu_gateway(
 
         float n_min = 1.;
 
+        float n_d_playhead = 1.-length(o_trn_nor_pixel_from_zero.x - n_nor_playhead);
+        n_d_playhead = pow((n_d_playhead-.5), 3.5)*10.;
+        n_d_playhead = clamp(n_d_playhead, 0., 1.);
+
+        vec4 o_col_sum = vec4(0.0);
         for(float n_idx_a_o_track = 0.; n_idx_a_o_track < n_len_a_o_track; n_idx_a_o_track+=1.){
 
             float n_len_a_o_note = a_n_len_a_o_note[int(n_idx_a_o_track)];
@@ -677,16 +806,26 @@ o_gpu_gateway = f_o_gpu_gateway(
                     n_nor_duration, 
                     1./n_len_a_o_track
                 );
-                float n = 1.-f_n_square(
-                    o_trn_nor_pixel_from_zero, 
-                    o_trn, 
-                    o_scl
+                // float n = 1.-f_n_square(
+                //     o_trn_nor_pixel_from_zero, 
+                //     o_trn, 
+                //     o_scl
+                // );
+                vec4 o_col_note = f_o_note(
+                    o_trn_nor_pixel_from_zero,// vec2 o_trn_pix,
+                    o_trn,// vec2 o_trn, 
+                    o_scl,// vec2 o_scl, 
+                    n_d_playhead,// float n_t_squircle,
+                    n_nor_velocity,// float n_nor_velocity, 
+                    n_nor_pitch,// float n_nor_pitch,
+                    vec4(1.)//o_col// vec4 o_col
                 );
                 // n = length(o_trn_nor_pixel_from_zero-o_trn)*20.;
                 // n = sin(n*33.);
-                if(n < n_min){
-                    n_min = n;
-                }
+                // if(n < n_min){
+                //     n_min = n;
+                // }
+                o_col_sum+=o_col_note;
             }
         }
 
@@ -694,10 +833,8 @@ o_gpu_gateway = f_o_gpu_gateway(
         // float n_idx = abs(o_trn_nor_pixel_from_zero.y*n_len_a_o_track);
         // fragColor = vec4(a_n_len_a_o_note[int(n_idx)]);
 
-        float n_d_playhead = 1.-length(o_trn_nor_pixel_from_zero.x - n_nor_playhead);
-        n_d_playhead = pow((n_d_playhead-.5), 3.5)*10.;
-        n_d_playhead = clamp(n_d_playhead, 0., 1.);
-        fragColor = vec4(vec3(n_min), 1.);
+
+        fragColor = vec4(o_col_sum);
         fragColor.xyz += vec3(n_d_playhead);
         // vec4 o_tmp = texture(
         //     o_texture,
@@ -711,6 +848,7 @@ o_gpu_gateway = f_o_gpu_gateway(
 
 await f_update_a_o_sample();
 o_state.o_js__a_o_track._f_render();
+
 
 
 let f_update_from_a_n_trn_mouse_nor = function(a_n_trn_mouse_nor){
@@ -846,7 +984,13 @@ o_gl.bufferData(o_gl.ARRAY_BUFFER, a_o_col, o_gl.STATIC_DRAW);
 var o_location_a_o_col = o_gl.getUniformLocation(o_gpu_gateway.o_shader__program, 'a_o_col');
 o_gl.uniform4fv(o_location_a_o_col, a_o_col);
 
-let a_n_len_a_o_note = new Float32Array(new Array(n_len_a_o_track_max).fill(0));//.map(()=>{return Math.random()}))
+
+
+
+// Get the location of the uniform array in the shader
+const o_location_a_o_col_track = o_gl.getUniformLocation(o_gpu_gateway.o_shader__program, "o_location_a_o_col_track");
+
+o_gl.uniform4fv(o_location_a_o_col_track, o_state.a_o_col_track);
 
 const o_location_a_n_len_a_o_note = o_gl.getUniformLocation(o_gpu_gateway.o_shader__program, 'a_n_len_a_o_note');
 
@@ -862,8 +1006,8 @@ o_gl.texParameteri(o_gl.TEXTURE_2D, o_gl.TEXTURE_MIN_FILTER, o_gl.NEAREST);
 o_gl.texParameteri(o_gl.TEXTURE_2D, o_gl.TEXTURE_MAG_FILTER, o_gl.NEAREST);
 
 // Initialize the texture with a Uint8Array
-const n_scl_x = n_len_a_o_note_max;
-const n_scl_y = n_len_a_o_track_max;
+const n_scl_x = o_state.n_len_a_o_note_max;
+const n_scl_y = o_state.n_len_a_o_track_max;
 const a_n_u8_texture = new Uint8Array(n_scl_x * n_scl_y * 4); // RGBA format
 for (let n_i = 0; n_i < a_n_u8_texture.length; n_i++) {
     a_n_u8_texture[n_i] = 0; // Example data
@@ -878,7 +1022,7 @@ o_gl.uniform1i(o_location_texture, 0);
 o_gl.activeTexture(o_gl.TEXTURE0);
 o_gl.bindTexture(o_gl.TEXTURE_2D, o_texture);
 
-o_gl.uniform1fv(o_location_a_n_len_a_o_note, a_n_len_a_o_note);
+o_gl.uniform1fv(o_location_a_n_len_a_o_note, o_state.a_n_len_a_o_note);
 
 
 let f_update_a_n_u8_texture = function(a_n_u8){
@@ -914,7 +1058,7 @@ let f_update_from_o_beat = function(o_beat){
         let o_pattern = o_track.a_o_pattern[o_track.n_idx_a_o_pattern];
 
         
-        a_n_len_a_o_note[n_idx_a_o_track] = o_pattern.a_o_note.length;
+        o_state.a_n_len_a_o_note[n_idx_a_o_track] = o_pattern.a_o_note.length;
         for(let n_idx_a_o_note in o_pattern.a_o_note){
             n_idx_a_o_note = parseInt(n_idx_a_o_note)
             let o_note = o_pattern.a_o_note[n_idx_a_o_note];
@@ -939,11 +1083,35 @@ let f_update_from_o_beat = function(o_beat){
     // longest pattern
 
     // debugger
-    o_gpu_gateway.o_ctx.uniform1fv(o_location_a_n_len_a_o_note, a_n_len_a_o_note);
+    o_gpu_gateway.o_ctx.uniform1fv(o_location_a_n_len_a_o_note, o_state.a_n_len_a_o_note);
+
+    o_gpu_gateway.o_ctx.uniform4fv(o_location_a_o_col_track, o_state.a_o_col_track);
+
+
 
     f_update_a_n_u8_texture(a_n_u8_texture)
 }
 
+
+let f_update_o_track__colors = function(
+    o_track,
+    s_color_hex, 
+){
+    let n_col = parseInt(s_color_hex.slice(1),16);
+    let n_nor_alpha = 1;
+    o_track.a_n_channelrgba_col_nor = [
+        ((n_col >> (8*2))& (1<<8)-1)/255, 
+        ((n_col >> (8*1))& (1<<8)-1)/255, 
+        ((n_col >> (8*0))& (1<<8)-1)/255, 
+        n_nor_alpha
+    ]
+    let n_idx = o_state.o_beat.a_o_track.indexOf(o_track);
+    o_state.a_o_col_track[n_idx*4+0] = o_track.a_n_channelrgba_col_nor[0]
+    o_state.a_o_col_track[n_idx*4+1] = o_track.a_n_channelrgba_col_nor[1]
+    o_state.a_o_col_track[n_idx*4+2] = o_track.a_n_channelrgba_col_nor[2]
+    o_state.a_o_col_track[n_idx*4+3] = o_track.a_n_channelrgba_col_nor[3]
+                                                                
+}
 f_update_from_o_beat(o_state.o_beat);
 
 
@@ -1009,9 +1177,9 @@ let f_raf = function(){
             {
                 n_len_a_o_col: a_o_col.length/4,
                 n_ms_time: window.performance.now(), 
-                n_len_a_o_track_max, 
+                n_len_a_o_track_max: o_state.n_len_a_o_track_max, 
                 n_len_a_o_track, 
-                n_len_a_o_note_max, 
+                n_len_a_o_note_max: o_state.n_len_a_o_note_max, 
                 n_nor_playhead: o_state.n_nor_playhead
             }, 
             o_gpu_gateway, 

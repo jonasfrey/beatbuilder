@@ -59,7 +59,8 @@ class O_track{
         n_grid_divisions, 
         n_idx_a_o_pattern, 
         a_o_pattern, 
-        s_char_keyboard
+        s_char_keyboard, 
+        a_n_nor_channelcolorrgba,
     ){
         this.o_sample = o_sample
         this.s_name = s_name
@@ -69,6 +70,7 @@ class O_track{
         this.n_idx_a_o_pattern = n_idx_a_o_pattern 
         this.a_o_pattern = a_o_pattern
         this.s_char_keyboard = s_char_keyboard
+        this.a_n_nor_channelcolorrgba = a_n_nor_channelcolorrgba
     }
 }
 
